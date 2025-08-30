@@ -166,22 +166,28 @@ database:
 ## 리포지토리 구조 (Repository Structure)
 
 ```
-/repo
-  /adapters        # 자산군별 데이터·시장 어댑터 (Binance, US, KR, Gold, FX)
-  /engine          # 공통 백테스터 엔진 (on_bar, 주문/수수료/슬리피지 상수)
-  /strategies      # 룰 기반 시그널·사이징·리스크 오버레이 (MTF 포함)
-  /data_spec       # 공통 스키마와 무결성 검사 규칙, 캘린더/정정 정의
-  /datasets        # Parquet/Arrow 저장소 (버전 태깅; 대용량은 외부 스토리지 권장)
-  /event_lab       # 이벤트 스키마·NLP 분류·±T 윈도 반응 분석
-  /correlation     # 롤링/레짐 상관 계산 및 업데이트 잡
-  /ml              # 라벨링(고정 호라이즌/트리플 배리어), 피처, LSTM 베이스라인
-  /rl              # 보조 탐색용 환경 (지표/재무특징 규칙 후보 생성)
-  /db              # DB DDL/ERD/마이그레이션 스크립트 (Alembic 등)
-  /conf            # YAML 설정 (해상도·슬리피지 상수·수수료·캘린더 등)
-  /reports         # 리포트 템플릿 및 산출물 (HTML/MD/PNG 등)
-  /tests           # pytest (무결성·메타모픽·통계·성능 테스트)
-  /scripts         # CLI 유틸 (ingest/run/report)
-  /docker          # Dockerfile/compose (재현 가능 실행 환경)
+/economy_simulator
+  /adapters/           # 데이터 소스/시장 어댑터 (Binance, US, KR, Gold, FX)
+  /engine/             # 공통 백테스터 엔진 (on_bar, 주문·수수료·슬리피지 상수)
+  /strategies/         # 룰 시그널·사이징·리스크 오버레이
+  /data_spec/          # 스키마·무결성 규칙, 캘린더/정정 정의
+  /datasets/           # Parquet/Arrow (원본 데이터; LFS/DVC 또는 외부 스토리지)
+  /event_lab/          # 이벤트 스키마·NLP 분류·±T 반응 분석
+  /correlation/        # 롤링/레짐 상관 계산 + 업데이트 잡
+  /ml/                 # 라벨링·피처·LSTM 베이스라인
+  /rl/                 # 보조 탐색용 환경 (지표/재무특징 후보 발굴)
+  /db/                 # MySQL DDL·ERD·마이그레이션 (Alembic 등)
+  /conf/               # YAML 설정 (해상도·슬리피지 상수·수수료·캘린더·DB 등)
+  /experiments/        # ★ 실험 단위 폴더(사고과정+결과를 묶는 핵심)
+  /reports/            # 렌더링된 리포트(HTML/PNG/MD); GitHub Pages로 공개
+  /notebooks/          # EDA/해설용 노트북(결과 스냅샷만 커밋)
+  /scripts/            # CLI (ingest/run/report/scaffold)
+  /tests/              # pytest (무결성·메타모픽·통계·성능)
+  /docker/             # Dockerfile/compose
+  /docs/               # 정적 사이트(MkDocs/Quarto) 소스 (선택)
+  .github/
+    ISSUE_TEMPLATE/    # 이슈 템플릿(실험 제안, 버그, 데이터)
+    PULL_REQUEST_TEMPLATE.md
 ```
 
 ---
@@ -193,6 +199,24 @@ database:
 3. **Event Lab / Correlation**: 이벤트 반응·상관 구조 분석(이벤트/상관 캐시 **MySQL** 조회/적재)
 4. **ML/RL**: 예측/아이디어 발굴 모듈로 확장
 5. **Report**: 전략/자산/이벤트별 비교 리포트 자동 생성
+
+---
+
+## 실험 기록 정책 (GitHub Only)
+- 모든 실험 기록은 **이 레포 안**에 보관합니다. 외부 사이트·GitHub Pages 비사용.
+- 실험 단위 폴더는 `/experiments/YYYY-MM-<slug>/` 규칙을 따릅니다.
+- 각 실험은 `card.md`(사고과정), `params.yaml`(설정), `runs.csv`(핵심 결과), `figures/`(그래프), `report.md`(요약)를 포함합니다.
+- **추적 연결**: `card.md` 하단에 `MLflow run_id`(있다면)와 **MySQL backtest_run.run_id**를 명시합니다.
+- 루트 `EXPERIMENTS.md`에서 모든 실험을 표로 인덱싱하고, 최근 3개 실험은 README의 **Latest Experiments**로 노출합니다.
+
+## Latest Experiments
+- (예시) 2025-09: BTC SMA+MACD+ATR → `experiments/2025-09-crypto-btc-sma-macd-atr/report.md`
+- (예시) 2025-09: ETH 외삽 + 이벤트 블랙아웃 30m A/B → `experiments/2025-09-eth-blackout-ab/report.md`
+
+## 릴리스/태그 정책
+- 프레임워크 릴리스: `vX.Y.Z` (엔진/구조 변화)
+- 데이터/실험 스냅샷: `exp-YYYY-MM-<slug>-vN` 태그 후 **GitHub Release**에 결과 번들(그림/표/요약)을 첨부합니다.
+- 큰 산출물(HTML/PNG/CSV)은 커밋 대신 **Release Assets** 또는 PR **Artifacts**로 보관합니다.
 
 ---
 
