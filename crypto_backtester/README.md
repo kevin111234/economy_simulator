@@ -16,21 +16,33 @@
 ---
 
 ## 2) 레포 구조(실험 폴더 포함)
-
 ```
-/engine/           # 체결/비용/러너
-/strategies/       # sma_cross, sma_macd_atr (+ 메타 JSON)
-/scripts/          # ingest/resample/run/analytics/admin(스켈레톤)
-/db/               # DDL, 파티션 관리 SQL
-/datasets/         # 5m CSV/Parquet 원본
-/reports/          # 요약·커브·주문 CSV/JSONL
-/experiments/2025-08-crypto-btcusdt-v01-baseline/
-  card.md          # 사고과정·가설·결과 요약
-  params.yaml      # 실행 파라미터(아래 예시)
-  runs.csv         # 핵심 지표 집계(헤더 고정)
-  report.md        # 1~2p 요약 리포트
-  links.json       # DB run_id / 질의문
-  figures/         # equity, drawdown 등
+economy_simulator/
+├─ .env                           # DB 등 시크릿 (커밋 금지)
+├─ pyproject.toml                 # 레포 공통 패키징(권장)  *선택: module-only도 가능
+├─ README.md                      # 레포 루트 소개
+└─ crypto_backtester/
+   ├─ README.md                   # (지금 만든) 암호화폐 백테스터 전용 문서
+   ├─ conf/
+   │   └─ base.yaml               # fees/slip, resolutions(5m,1d), DB(MariaDB) 설정
+   ├─ db/
+   │   └─ migrations/
+   │       ├─ 0001_init.sql       # bars/backtest_run/orders 스키마
+   │       └─ 0002_partitions.sql # 월 파티션 템플릿(12개월 유지)
+   ├─ datasets/                   # 5m CSV/Parquet 원본(연구용)
+   ├─ engine/                     # 체결/비용/러너 (v0.1)
+   ├─ strategies/                 # sma_cross, sma_macd_atr (+ 메타 JSON)
+   ├─ scripts/                    # ingest/resample/run/analytics/admin (스켈레톤)
+   ├─ reports/                    # summary.jsonl, *_orders.csv, *_equity.csv
+   ├─ experiments/
+   │   └─ 2025-08-crypto-btcusdt-v01-baseline/
+   │       ├─ card.md
+   │       ├─ params.yaml
+   │       ├─ runs.csv
+   │       ├─ report.md
+   │       ├─ links.json
+   │       └─ figures/
+   └─ tests/                      # 무결성/메타모픽/스모크
 ```
 
 ---
