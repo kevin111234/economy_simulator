@@ -1,0 +1,18 @@
+name: Bug
+labels: ["bug"]
+body:
+  - type: input
+    id: where
+    attributes: { label: 위치, placeholder: 모듈/파일/함수 }
+  - type: textarea
+    id: steps
+    attributes: { label: 재현 스텝 }
+  - type: textarea
+    id: expect
+    attributes: { label: 기대 결과 }
+  - type: textarea
+    id: got
+    attributes: { label: 실제 결과/로그 }
+  - type: dropdown
+    id: priority
+    attributes: { label: Priority, options: [P0, P1, P2, P3] }

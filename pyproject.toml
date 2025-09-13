@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "economy-simulator"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "pandas>=2.2",
+  "numpy>=1.26",
+  "pyyaml>=6.0",
+  "sqlalchemy>=2.0",
+  "pymysql>=1.1",
+  "python-dotenv>=1.0",
+  "rich>=13.7",
+  "pytest>=8.2",
+  "requests>=2.31"        # ★ Binance REST
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "-q"
+
+# 👇 여기서 패키지 탐색 범위를 crypto_backtester*로 제한
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["crypto_backtester*"]
+exclude = ["experiments*", "datasets*", "reports*", "scripts*", "tests*", "db*"]

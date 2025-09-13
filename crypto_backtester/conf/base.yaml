@@ -1,0 +1,17 @@
+fees_bps: { maker: 1.0, taker: 5.0 }
+slippage_bps: { crypto: 4 }
+
+resolutions:
+  crypto: [5m, 1d]   # 1h 미사용
+
+database:
+  driver: mariadb
+  host: ${DB_HOST}
+  port: ${DB_PORT}
+  user: ${DB_USER}
+  password: ${DB_PASS}
+  name: ${DB_NAME}
+  pool_size: ${DB_POOL_SIZE}
+  connect_timeout: ${DB_CONNECT_TIMEOUT}
+  timezone: "UTC"
+  enabled: true

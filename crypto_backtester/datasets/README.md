@@ -1,0 +1,3 @@
+- Timezone: UTC
+- Columns: ts,open,high,low,close,volume
+- ts format: ISO8601 (e.g., 2024-09-01T00:00:00Z)
