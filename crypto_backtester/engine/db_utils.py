@@ -59,17 +59,18 @@ def upsert_bars(engine: Engine, asset_id: int, res: str, df: pd.DataFrame) -> in
     if df.empty:
         return 0
     out = df.copy()
-    if out.index.tz is None:
-        # naive → UTC로 간주
-        ts_series = pd.to_datetime(out.index).tz_localize("UTC")
-    else:
-        ts_series = out.index.tz_convert("UTC")
     records = []
     for ts, row in out.iterrows():
+        # 각 row의 인덱스(ts)를 안전하게 UTC로 정규화
+        ts = pd.Timestamp(ts)
+        if ts.tz is None:
+            ts_utc = ts.tz_localize("UTC")
+        else:
+            ts_utc = ts.tz_convert("UTC")
         records.append({
             "asset_id": asset_id,
             "res": res,
-            "ts": ts_series.loc[ts].to_pydatetime().replace(tzinfo=None),  # MySQL DATETIME(UTC)
+            "ts": ts_utc.to_pydatetime().replace(tzinfo=None),  # MySQL DATETIME(UTC, naive)
             "open": float(row["open"]),
             "high": float(row["high"]),
             "low": float(row["low"]),
