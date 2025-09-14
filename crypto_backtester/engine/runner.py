@@ -1,8 +1,7 @@
 from __future__ import annotations
 import os, json, math, time, uuid
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import pandas as pd
-from sqlalchemy import text
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +10,10 @@ matplotlib.use("Agg")  # 헤드리스 환경 렌더링
 import matplotlib.pyplot as plt
 
 from crypto_backtester.engine.db_utils import get_engine, ensure_asset, fetch_bars
+try:
+    import yaml  # params.yaml 저장용
+except Exception:
+    yaml = None
 
 # --------- 내부 유틸 ---------
 def _gen_run_id() -> str:
@@ -45,42 +48,20 @@ def _one_line(run_id: str, symbol: str, res: str, strategy: str,
             f"PnL={pct(pnl)} Sharpe={sharpe:.2f} MDD={pct(mdd)} Trades={trades} "
             f"Fee={int(fee_bps)}bps Slip={int(slip_bps)}bps Period={start}→{end}")
 
-def _bulk_insert_orders(engine, orders: List[Dict[str, Any]]):
-    if not orders:
-        return
-    sql = text("""
-        INSERT INTO econ_sim.orders
-        (run_id, ts, side, symbol, res, qty, price, fee_bps, slippage_bps)
-        VALUES (:run_id,:ts,:side,:symbol,:res,:qty,:price,:fee_bps,:slippage_bps)
-    """)
-    with engine.begin() as conn:
-        conn.execute(sql, orders)
-
-def _insert_backtest_run(engine, row: Dict[str, Any]):
-    sql = text("""
-        INSERT INTO econ_sim.backtest_run
-        (run_id, symbol, res, strategy, params_json, start_ts, end_ts,
-         fee_bps, slip_bps, pnl, sharpe, mdd, trades)
-        VALUES (:run_id, :symbol, :res, :strategy, :params_json, :start_ts, :end_ts,
-                :fee_bps, :slip_bps, :pnl, :sharpe, :mdd, :trades)
-    """)
-    with engine.begin() as conn:
-        conn.execute(sql, row)
-
 # --------- 공개 API ---------
 def run_backtest(
     symbol: str, res: str, start: str, end: str,
     strategy_name: str, strategy_params: Dict[str, Any],
     start_cash: float, fee_bps: float, slip_bps: float,
     liquidate_on_end: bool = True, db_logging: bool = True,
-    artifact_root: str | None = None,   # 실험 산출물 루트(exp-dir). 지정 시 experiments/<...>/runs/<run_id>/ 아래 저장
+    artifact_root: str | None = None,   # 실험 산출물 루트(exp-dir). None이면 experiments/<ES_EXP_NAME>/runs/<run_id> 사용
     save_fig: bool = True
 ) -> Dict[str, Any]:
     """
-    실행 결과 산출물 저장 정책:
-      - artifact_root 지정: experiments/<...>/runs/<run_id>/
-          - equity.csv, orders.csv, summary.json, figures/{equity.png,drawdown.png}
-      - artifact_root 미지정: (하위호환) crypto_backtester/reports/ 및 figures/에 저장 + summary.jsonl append
+    실행 결과 산출물 저장 정책(통일):
+      - artifact_root 지정: <artifact_root>/runs/<run_id>/
+      - artifact_root 미지정: crypto_backtester/experiments/<ES_EXP_NAME 또는 UNNAMED-EXP>/runs/<run_id>/
+      - 저장물: equity.csv, orders.csv, summary.json, params.yaml, figures/{equity.png, drawdown.png}
     """
     # 데이터 로드
     eng = get_engine()
@@ -185,24 +166,18 @@ def run_backtest(
                      fee_bps, slip_bps, start_s, end_s)
     print(line)
 
-    # --- 산출물 저장 위치 결정 ---
-    if artifact_root:
-        base = Path(artifact_root).resolve()
-        run_dir = base / "runs" / run_id
-        fig_dir = run_dir / "figures"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        fig_dir.mkdir(parents=True, exist_ok=True)
-        equity_path = str(run_dir / "equity.csv")
-        orders_path = str(run_dir / "orders.csv")
+    # --- 산출물 저장 위치 결정(항상 experiments 계층) ---
+    if artifact_root is None:
+        exp_name = os.environ.get("ES_EXP_NAME", "UNNAMED-EXP")
+        base = Path(__file__).resolve().parents[1] / "experiments" / exp_name
     else:
-        # 하위호환: 중앙 reports
-        reports_dir = Path(__file__).resolve().parents[1] / "reports"
-        fig_dir = reports_dir / "figures"
-        reports_dir.mkdir(parents=True, exist_ok=True)
-        fig_dir.mkdir(parents=True, exist_ok=True)
-        run_dir = reports_dir  # 파일명에 run_id 포함
-        equity_path = str(run_dir / f"{run_id}_equity.csv")
-        orders_path = str(run_dir / f"{run_id}_orders.csv")
+        base = Path(artifact_root).resolve()
+    run_dir = base / "runs" / run_id
+    fig_dir = run_dir / "figures"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    equity_path = str(run_dir / "equity.csv")
+    orders_path = str(run_dir / "orders.csv")
 
     # CSV 저장
     equity_df.to_csv(equity_path, header=True)
@@ -217,25 +192,22 @@ def run_backtest(
         "start_cash": float(start_cash),
         "params": strategy_params
     }
-    if artifact_root:
-        with open(str(run_dir / "summary.json"), "w", encoding="utf-8") as f:
-            json.dump(summary_obj, f, ensure_ascii=False, indent=2)
-    else:
-        with open(str((Path(run_dir) / "summary.jsonl")), "a", encoding="utf-8") as f:
-            f.write(json.dumps(summary_obj) + "\n")
+    with open(str(run_dir / "summary.json"), "w", encoding="utf-8") as f:
+        json.dump(summary_obj, f, ensure_ascii=False, indent=2)
 
-    # DB 로깅 (로컬 전용 실험이면 False 권장)
-    if db_logging:
-        eng = get_engine()
-        _insert_backtest_run(eng, {
-            "run_id": run_id, "symbol": symbol, "res": res,
-            "strategy": strategy_name, "params_json": json.dumps(strategy_params),
-            "start_ts": f"{start_s}", "end_ts": f"{end_s}",
-            "fee_bps": float(fee_bps), "slip_bps": float(slip_bps),
-            "pnl": float(m["pnl"]), "sharpe": float(m["sharpe"]),
-            "mdd": float(m["mdd"]), "trades": int(trades),
-        })
-        _bulk_insert_orders(eng, orders)
+    # params.yaml 저장(없으면 params.json으로 폴백)
+    params_payload = {
+        "symbol": symbol, "resolution": res, "start": start_s, "end": end_s,
+        "strategy": strategy_name, "start_cash": float(start_cash),
+        "fee_bps": float(fee_bps), "slip_bps": float(slip_bps),
+        "params": strategy_params,
+    }
+    if yaml is not None:
+        with open(str(run_dir / "params.yaml"), "w", encoding="utf-8") as f:
+            yaml.safe_dump(params_payload, f, allow_unicode=True, sort_keys=False)
+    else:
+        with open(str(run_dir / "params.json"), "w", encoding="utf-8") as f:
+            json.dump(params_payload, f, ensure_ascii=False, indent=2)
 
     # 그림 저장
     if save_fig:

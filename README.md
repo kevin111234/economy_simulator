@@ -101,7 +101,7 @@ database:
 * **mkt\_calendar**: `market_code`, `date`, `is_open`, `open_time`, `close_time`, `notes`.
 * **correlation\_cache**: `asof_date`, `window`(60D/252D...), `asset_id_a`, `asset_id_b`, `corr`, `regime_label`.
 * **backtest\_run**: `run_id` PK, `strategy`, `params(JSON)`, `start_ts`, `end_ts`, `fees_bps`, `cost_bps`, `notes`.
-* **orders** / **trades**: `orders(run_id, asset_id, ts, side, qty, price, slippage_bps, fee_bps, status)` / `trades(order_id, fill_ts, qty, price, fee)`.
+* **실험 산출물(로컬)**: `experiments/<실험>/runs/<run_id>/` 폴더에 `equity.csv`, `orders.csv`, `summary.json`, `figures/*.png` 저장.
 
 > **권장 사항**
 >
@@ -206,7 +206,7 @@ database:
 - 모든 실험 기록은 **이 레포 안**에 보관합니다. 외부 사이트·GitHub Pages 비사용.
 - 실험 단위 폴더는 `/experiments/YYYY-MM-<slug>/` 규칙을 따릅니다.
 - 각 실험은 `card.md`(사고과정), `params.yaml`(설정), `runs.csv`(핵심 결과), `figures/`(그래프), `report.md`(요약)를 포함합니다.
-- **추적 연결**: `card.md` 하단에 `MLflow run_id`(있다면)와 **MySQL backtest_run.run_id**를 명시합니다.
+**추적 연결**: `card.md` 하단에 `MLflow run_id`(있다면)와 **로컬 run_id**를 명시합니다.
 - 루트 `EXPERIMENTS.md`에서 모든 실험을 표로 인덱싱하고, 최근 3개 실험은 README의 **Latest Experiments**로 노출합니다.
 
 ## Latest Experiments
