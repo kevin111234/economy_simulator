@@ -1,34 +1,30 @@
--- 0001_init.sql
--- 목적: econ_sim 스키마 초기화 (시장데이터 전용: asset, bars, ingest_status)
--- 비고: 캔들 ts는 UTC (naive DATETIME). end exclusive 조회 관례.
---       파티셔닝은 0002_partitions.sql에서 수행.
-
+-- 0001_init.tmpl.sql
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 
-CREATE DATABASE IF NOT EXISTS `econ_sim`
+CREATE DATABASE IF NOT EXISTS `__DB_NAME__`
   DEFAULT CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
-USE `econ_sim`;
+USE `__DB_NAME__`;
 
--- A) 자산 메타 테이블 (확장 컬럼 포함)
+-- asset
 CREATE TABLE IF NOT EXISTS `asset` (
   `asset_id`    INT NOT NULL AUTO_INCREMENT,
-  `class`       VARCHAR(16)        NULL,  -- 'spot','perp' 등 (선택)
-  `symbol`      VARCHAR(32)        NULL,  -- 예: 'BTCUSDT'
-  `exchange`    VARCHAR(32)        NULL,  -- 예: 'Binance'
+  `class`       VARCHAR(16)        NULL,
+  `symbol`      VARCHAR(32)        NULL,
+  `exchange`    VARCHAR(32)        NULL,
   `market`      ENUM('crypto','equity','etf','index','fx','commodity') NULL,
-  `base_asset`  VARCHAR(16)        NULL,  -- 예: 'BTC'
-  `quote_asset` VARCHAR(16)        NULL,  -- 예: 'USDT'
+  `base_asset`  VARCHAR(16)        NULL,
+  `quote_asset` VARCHAR(16)        NULL,
   `tick_size`   DECIMAL(18,8)      NULL,
   `lot_size`    DECIMAL(18,8)      NULL,
-  `currency`    VARCHAR(16)        NULL,  -- 정산통화(예: 'USDT','USD')
+  `currency`    VARCHAR(16)        NULL,
   PRIMARY KEY (`asset_id`),
   UNIQUE KEY `uq_asset_symbol` (`symbol`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- B) 캔들 테이블 (메타 컬럼 포함)
+-- bars (FK 없음; 파티션 적용 위해)
 CREATE TABLE IF NOT EXISTS `bars` (
   `asset_id`   INT                NOT NULL,
   `res`        ENUM('5m','1d')    NOT NULL,
@@ -39,16 +35,16 @@ CREATE TABLE IF NOT EXISTS `bars` (
   `low`        DOUBLE             NULL,
   `close`      DOUBLE             NULL,
   `volume`     DOUBLE             NULL,
-  `provider`   VARCHAR(16)        NULL,      -- 'binance','resampler' 등
+  `provider`   VARCHAR(16)        NULL,
   `ingest_ts`  DATETIME           NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `adj_factor` DECIMAL(18,9)      NULL DEFAULT 1.000000000,  -- 주식 확장 여지
+  `adj_factor` DECIMAL(18,9)      NULL DEFAULT 1.000000000,
   `adj_close`  DECIMAL(24,10)     NULL,
   PRIMARY KEY (`asset_id`,`res`,`ts`),
   KEY `k_date` (`ts_date`),
   KEY `k_provider` (`provider`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- C) 적재 상태 테이블 (옵셔널 운영 로그)
+-- ingest_status (운영 로그; FK 유지 가능)
 CREATE TABLE IF NOT EXISTS `ingest_status` (
   `asset_id`    INT               NOT NULL,
   `res`         ENUM('5m','1d')   NOT NULL,
