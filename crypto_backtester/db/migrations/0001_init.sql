@@ -16,21 +16,3 @@ CREATE TABLE IF NOT EXISTS econ_sim.bars (
   KEY idx_ts (ts),
   KEY idx_date (ts_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS econ_sim.backtest_run (
-  run_id VARCHAR(64) PRIMARY KEY,
-  symbol VARCHAR(32), res VARCHAR(8),
-  strategy VARCHAR(64), params_json JSON,
-  start_ts DATETIME, end_ts DATETIME,
-  fee_bps DOUBLE, slip_bps DOUBLE,
-  pnl DOUBLE, sharpe DOUBLE, mdd DOUBLE, trades INT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS econ_sim.orders (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  run_id VARCHAR(64), ts DATETIME, side VARCHAR(8),
-  symbol VARCHAR(32), res VARCHAR(8),
-  qty DOUBLE, price DOUBLE, fee_bps DOUBLE, slippage_bps DOUBLE,
-  INDEX idx_run (run_id), INDEX idx_ts (ts)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
