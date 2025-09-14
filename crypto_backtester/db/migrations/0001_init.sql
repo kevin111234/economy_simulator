@@ -45,10 +45,7 @@ CREATE TABLE IF NOT EXISTS `bars` (
   `adj_close`  DECIMAL(24,10)     NULL,
   PRIMARY KEY (`asset_id`,`res`,`ts`),
   KEY `k_date` (`ts_date`),
-  KEY `k_provider` (`provider`),
-  CONSTRAINT `fk_bars_asset`
-    FOREIGN KEY (`asset_id`) REFERENCES `asset`(`asset_id`)
-    ON UPDATE CASCADE ON DELETE RESTRICT
+  KEY `k_provider` (`provider`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- C) 적재 상태 테이블 (옵셔널 운영 로그)
