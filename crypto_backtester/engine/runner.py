@@ -3,6 +3,11 @@ import os, json, math, time, uuid
 from typing import Dict, Any, List, Tuple
 import pandas as pd
 from sqlalchemy import text
+import os
+from datetime import datetime
+import matplotlib
+matplotlib.use("Agg")  # 헤드리스 환경 렌더링
+import matplotlib.pyplot as plt
 
 from crypto_backtester.engine.db_utils import get_engine, ensure_asset, fetch_bars, load_conf
 
@@ -65,7 +70,8 @@ def run_backtest(
     symbol: str, res: str, start: str, end: str,
     strategy_name: str, strategy_params: Dict[str, Any],
     start_cash: float, fee_bps: float, slip_bps: float,
-    liquidate_on_end: bool = True, db_logging: bool = True
+    liquidate_on_end: bool = True, db_logging: bool = True,
+    save_fig: bool = True  # v0.1.1: 그림 자동 저장 스위치
 ) -> Dict[str, Any]:
     eng = get_engine()
     aid = ensure_asset(eng, symbol)
@@ -188,6 +194,12 @@ def run_backtest(
     with open(os.path.join(reports_dir, "summary.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(summ) + "\n")
 
+    # v0.1.1: 에쿼티/드로다운 PNG 자동 저장
+    if save_fig:
+        fig_dir = os.path.join(reports_dir, "figures")
+        os.makedirs(fig_dir, exist_ok=True)
+        _save_equity_drawdown_figures(equity_df, run_id, fig_dir)
+
     # DB 로깅
     if db_logging:
         eng = get_engine()
@@ -205,3 +217,41 @@ def run_backtest(
         "run_id": run_id, "equity_path": equity_path, "orders_path": orders_path,
         "summary": summ
     }
+
+
+def _save_equity_drawdown_figures(equity_ser: pd.Series, run_id: str, out_dir: str) -> None:
+    """
+    에쿼티/드로다운 이미지를 파일로 저장한다.
+    - equity_ser: index=Timestamp, values=equity
+    - out_dir: 저장 디렉토리(존재하지 않으면 생성되어 있음)
+    """
+    if equity_ser is None or len(equity_ser) < 2:
+        return
+    ser = equity_ser.sort_index()
+    # 드로다운 계산
+    roll_max = ser.cummax().replace(0.0, pd.NA)
+    dd = ser / roll_max - 1.0
+
+    # 1) Equity
+    fig1 = plt.figure(figsize=(10, 4))
+    plt.plot(ser.index, ser.values)
+    plt.title(f"Equity Curve — {run_id}")
+    plt.xlabel("Time")
+    plt.ylabel("Equity")
+    plt.grid(True, linewidth=0.3)
+    fig1.autofmt_xdate()
+    fig1.tight_layout()
+    fig1.savefig(os.path.join(out_dir, f"{run_id}_equity.png"), dpi=150)
+    plt.close(fig1)
+
+    # 2) Drawdown
+    fig2 = plt.figure(figsize=(10, 2.8))
+    plt.plot(dd.index, dd.values)
+    plt.title(f"Drawdown — {run_id}")
+    plt.xlabel("Time")
+    plt.ylabel("Drawdown")
+    plt.grid(True, linewidth=0.3)
+    fig2.autofmt_xdate()
+    fig2.tight_layout()
+    fig2.savefig(os.path.join(out_dir, f"{run_id}_drawdown.png"), dpi=150)
+    plt.close(fig2)
