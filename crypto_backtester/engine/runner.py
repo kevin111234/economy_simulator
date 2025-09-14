@@ -1,16 +1,18 @@
 from __future__ import annotations
 import os, json, math, time, uuid
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 import pandas as pd
 from sqlalchemy import text
-import os
 from datetime import datetime
+from pathlib import Path
+
 import matplotlib
 matplotlib.use("Agg")  # 헤드리스 환경 렌더링
 import matplotlib.pyplot as plt
 
-from crypto_backtester.engine.db_utils import get_engine, ensure_asset, fetch_bars, load_conf
+from crypto_backtester.engine.db_utils import get_engine, ensure_asset, fetch_bars
 
+# --------- 내부 유틸 ---------
 def _gen_run_id() -> str:
     return time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
 
@@ -18,7 +20,7 @@ def _periods_per_year(res: str) -> int:
     if res == "1d":
         return 365
     if res == "5m":
-        return 365*24*12  # 105,120
+        return 365 * 24 * 12  # 105,120
     raise ValueError(f"unknown res={res}")
 
 def _metrics(equity: pd.Series, res: str) -> Dict[str, float]:
@@ -29,7 +31,6 @@ def _metrics(equity: pd.Series, res: str) -> Dict[str, float]:
     mu, sd = ret.mean(), ret.std()
     ann = _periods_per_year(res)
     sharpe = (mu / sd * math.sqrt(ann)) if sd > 0 else 0.0
-    # MDD
     roll_max = eq.cummax()
     dd = eq / roll_max - 1.0
     mdd = float(dd.min()) if len(dd) else 0.0
@@ -66,13 +67,22 @@ def _insert_backtest_run(engine, row: Dict[str, Any]):
     with engine.begin() as conn:
         conn.execute(sql, row)
 
+# --------- 공개 API ---------
 def run_backtest(
     symbol: str, res: str, start: str, end: str,
     strategy_name: str, strategy_params: Dict[str, Any],
     start_cash: float, fee_bps: float, slip_bps: float,
     liquidate_on_end: bool = True, db_logging: bool = True,
-    save_fig: bool = True  # v0.1.1: 그림 자동 저장 스위치
+    artifact_root: str | None = None,   # 실험 산출물 루트(exp-dir). 지정 시 experiments/<...>/runs/<run_id>/ 아래 저장
+    save_fig: bool = True
 ) -> Dict[str, Any]:
+    """
+    실행 결과 산출물 저장 정책:
+      - artifact_root 지정: experiments/<...>/runs/<run_id>/
+          - equity.csv, orders.csv, summary.json, figures/{equity.png,drawdown.png}
+      - artifact_root 미지정: (하위호환) crypto_backtester/reports/ 및 figures/에 저장 + summary.jsonl append
+    """
+    # 데이터 로드
     eng = get_engine()
     aid = ensure_asset(eng, symbol)
     df = fetch_bars(eng, aid, res, start, end)
@@ -106,8 +116,8 @@ def run_backtest(
 
     cash = start_cash
     qty = 0.0
-    equity = []
-    orders = []
+    equity_pairs: List[tuple[datetime, float]] = []
+    orders: List[Dict[str, Any]] = []
     prev_sig = 0
 
     for ts, row in df.iterrows():
@@ -144,7 +154,7 @@ def run_backtest(
 
         prev_sig = s
         # 마크투마켓
-        equity.append((ts, cash + qty * price))
+        equity_pairs.append((ts.to_pydatetime(), cash + qty * price))
 
     # 종료 청산
     last_ts = df.index[-1]
@@ -161,11 +171,12 @@ def run_backtest(
             "qty": qty, "price": sell_px, "fee_bps": fee_bps, "slippage_bps": slip_bps
         })
         qty = 0.0
-        equity[-1] = (last_ts, cash)  # 마지막 시점 에쿼티 갱신
+        if equity_pairs:
+            equity_pairs[-1] = (last_ts.to_pydatetime(), cash)  # 마지막 시점 에쿼티 갱신
 
-    equity_df = pd.Series({ts: val for ts, val in equity}, name="equity").sort_index()
+    equity_df = pd.Series({ts: val for ts, val in equity_pairs}, name="equity").sort_index()
     m = _metrics(equity_df, res)
-    trades = sum(1 for o in orders if o["side"] == "SELL")  # 라이트하게 '완결된 거래'로 카운트
+    trades = sum(1 for o in orders if o["side"] == "SELL")  # '완결된 거래'로 카운트
 
     # run_id, 요약/로그 저장
     run_id = _gen_run_id()
@@ -174,33 +185,46 @@ def run_backtest(
                      fee_bps, slip_bps, start_s, end_s)
     print(line)
 
-    # reports 파일 저장
-    reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports")
-    reports_dir = os.path.abspath(reports_dir)
-    os.makedirs(reports_dir, exist_ok=True)
-    # equity/orders 파일
-    equity_path = os.path.join(reports_dir, f"{run_id}_equity.csv")
-    orders_path = os.path.join(reports_dir, f"{run_id}_orders.csv")
+    # --- 산출물 저장 위치 결정 ---
+    if artifact_root:
+        base = Path(artifact_root).resolve()
+        run_dir = base / "runs" / run_id
+        fig_dir = run_dir / "figures"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        fig_dir.mkdir(parents=True, exist_ok=True)
+        equity_path = str(run_dir / "equity.csv")
+        orders_path = str(run_dir / "orders.csv")
+    else:
+        # 하위호환: 중앙 reports
+        reports_dir = Path(__file__).resolve().parents[1] / "reports"
+        fig_dir = reports_dir / "figures"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        fig_dir.mkdir(parents=True, exist_ok=True)
+        run_dir = reports_dir  # 파일명에 run_id 포함
+        equity_path = str(run_dir / f"{run_id}_equity.csv")
+        orders_path = str(run_dir / f"{run_id}_orders.csv")
+
+    # CSV 저장
     equity_df.to_csv(equity_path, header=True)
-    # orders에 run_id 채우고 저장
     for o in orders: o["run_id"] = run_id
     pd.DataFrame(orders).to_csv(orders_path, index=False)
-    # summary.jsonl
-    summ = {
+
+    # summary 저장
+    summary_obj = {
         "run_id": run_id, "symbol": symbol, "res": res, "strategy": strategy_name,
-        "pnl": m["pnl"], "sharpe": m["sharpe"], "mdd": m["mdd"], "trades": trades,
-        "fee_bps": fee_bps, "slip_bps": slip_bps, "start": start_s, "end": end_s
+        "pnl": float(m["pnl"]), "sharpe": float(m["sharpe"]), "mdd": float(m["mdd"]), "trades": int(trades),
+        "fee_bps": float(fee_bps), "slip_bps": float(slip_bps), "start": start_s, "end": end_s,
+        "start_cash": float(start_cash),
+        "params": strategy_params
     }
-    with open(os.path.join(reports_dir, "summary.jsonl"), "a", encoding="utf-8") as f:
-        f.write(json.dumps(summ) + "\n")
+    if artifact_root:
+        with open(str(run_dir / "summary.json"), "w", encoding="utf-8") as f:
+            json.dump(summary_obj, f, ensure_ascii=False, indent=2)
+    else:
+        with open(str((Path(run_dir) / "summary.jsonl")), "a", encoding="utf-8") as f:
+            f.write(json.dumps(summary_obj) + "\n")
 
-    # v0.1.1: 에쿼티/드로다운 PNG 자동 저장
-    if save_fig:
-        fig_dir = os.path.join(reports_dir, "figures")
-        os.makedirs(fig_dir, exist_ok=True)
-        _save_equity_drawdown_figures(equity_df, run_id, fig_dir)
-
-    # DB 로깅
+    # DB 로깅 (로컬 전용 실험이면 False 권장)
     if db_logging:
         eng = get_engine()
         _insert_backtest_run(eng, {
@@ -213,45 +237,35 @@ def run_backtest(
         })
         _bulk_insert_orders(eng, orders)
 
+    # 그림 저장
+    if save_fig:
+        # equity
+        plt.figure(figsize=(10, 4))
+        equity_df.plot(ax=plt.gca())
+        plt.title(f"Equity — {symbol} {res} {strategy_name}")
+        plt.tight_layout()
+        if artifact_root:
+            plt.savefig(str(fig_dir / "equity.png"))
+        else:
+            plt.savefig(str(fig_dir / f"{run_id}_equity.png"))
+        plt.close()
+
+        # drawdown
+        dd = equity_df / equity_df.cummax() - 1.0
+        plt.figure(figsize=(10, 3))
+        dd.plot(ax=plt.gca())
+        plt.title("Drawdown")
+        plt.tight_layout()
+        if artifact_root:
+            plt.savefig(str(fig_dir / "drawdown.png"))
+        else:
+            plt.savefig(str(fig_dir / f"{run_id}_drawdown.png"))
+        plt.close()
+
     return {
-        "run_id": run_id, "equity_path": equity_path, "orders_path": orders_path,
-        "summary": summ
+        "run_id": run_id,
+        "artifact_dir": str(run_dir),
+        "equity_path": equity_path,
+        "orders_path": orders_path,
+        "summary": summary_obj
     }
-
-
-def _save_equity_drawdown_figures(equity_ser: pd.Series, run_id: str, out_dir: str) -> None:
-    """
-    에쿼티/드로다운 이미지를 파일로 저장한다.
-    - equity_ser: index=Timestamp, values=equity
-    - out_dir: 저장 디렉토리(존재하지 않으면 생성되어 있음)
-    """
-    if equity_ser is None or len(equity_ser) < 2:
-        return
-    ser = equity_ser.sort_index()
-    # 드로다운 계산
-    roll_max = ser.cummax().replace(0.0, pd.NA)
-    dd = ser / roll_max - 1.0
-
-    # 1) Equity
-    fig1 = plt.figure(figsize=(10, 4))
-    plt.plot(ser.index, ser.values)
-    plt.title(f"Equity Curve — {run_id}")
-    plt.xlabel("Time")
-    plt.ylabel("Equity")
-    plt.grid(True, linewidth=0.3)
-    fig1.autofmt_xdate()
-    fig1.tight_layout()
-    fig1.savefig(os.path.join(out_dir, f"{run_id}_equity.png"), dpi=150)
-    plt.close(fig1)
-
-    # 2) Drawdown
-    fig2 = plt.figure(figsize=(10, 2.8))
-    plt.plot(dd.index, dd.values)
-    plt.title(f"Drawdown — {run_id}")
-    plt.xlabel("Time")
-    plt.ylabel("Drawdown")
-    plt.grid(True, linewidth=0.3)
-    fig2.autofmt_xdate()
-    fig2.tight_layout()
-    fig2.savefig(os.path.join(out_dir, f"{run_id}_drawdown.png"), dpi=150)
-    plt.close(fig2)
