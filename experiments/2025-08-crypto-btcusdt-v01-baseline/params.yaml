@@ -1,0 +1,16 @@
+symbol: BTCUSDT
+resolution: 5m
+start: "2024-08-31"
+end: "2025-08-31"
+
+strategy: sma_cross
+params:
+  sma_short: 20
+  sma_long: 60
+
+start_cash: 10000
+fee_bps: 5
+slip_bps: 4
+liquidate_on_end: true
+db_logging: true
+notes: "v0.1 baseline; on-close, long-only, all-in"

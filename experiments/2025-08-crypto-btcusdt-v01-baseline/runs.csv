@@ -1,0 +1,2 @@
+run_id,symbol,res,strategy,pnl,sharpe,mdd,trades,fee_bps,slip_bps,start,end
+20250914-000335-abd720,BTCUSDT,5m,sma_cross,-0.806761112297167,-4.8980443339590956,-0.8068989012347128,1053,5.0,4,2024-08-31,2025-08-31
