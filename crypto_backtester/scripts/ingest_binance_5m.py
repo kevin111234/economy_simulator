@@ -75,7 +75,7 @@ def main():
             if df.empty:
                 continue
             # 멱등 업서트
-            n = upsert_bars(eng, asset_id, "5m", df)
+            n = upsert_bars(eng, asset_id, "5m", df, provider="binance", market="crypto")
             total_rows += n
             pages += 1
             last_ts = df.index[-1].isoformat()

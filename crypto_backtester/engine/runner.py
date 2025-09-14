@@ -65,8 +65,8 @@ def run_backtest(
     """
     # 데이터 로드
     eng = get_engine()
-    aid = ensure_asset(eng, symbol)
-    df = fetch_bars(eng, aid, res, start, end)
+    aid = ensure_asset(eng, symbol, market="crypto")
+    df = fetch_bars(eng, aid, res, start, end, market="crypto")
     if df.empty:
         raise RuntimeError("no data")
 

@@ -10,6 +10,21 @@ from sqlalchemy.engine import Engine
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  # crypto_backtester/
+DB_NAME = os.getenv("DB_NAME", "econ_sim")
+
+# v0.2: 자산군별 테이블 라우팅
+BAR_TABLE_BY_MARKET = {
+    "crypto": "crypto_bars",
+    "equity": "equity_bars",
+    "commodity": "commodity_bars",
+    "fx": "fx_bars",
+}
+
+def resolve_bar_table(market: str) -> str:
+    try:
+        return BAR_TABLE_BY_MARKET[market]
+    except KeyError:
+        raise ValueError(f"unknown market={market} (allowed: {list(BAR_TABLE_BY_MARKET.keys())})")
 
 def _expand_env(v: Any) -> Any:
     if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
@@ -43,19 +58,31 @@ def get_engine() -> Engine:
     )
     return engine
 
-def ensure_asset(engine: Engine, symbol: str, exchange: str = "Binance", currency: str = "USDT") -> int:
+def ensure_asset(engine, symbol: str, exchange: str | None = None,
+                currency: str | None = None, market: str = "crypto") -> int:
     with engine.begin() as conn:
-        conn.execute(text("""
-            INSERT IGNORE INTO econ_sim.asset(class, symbol, exchange, currency)
-            VALUES ('crypto', :symbol, :exchange, :currency)
-        """), {"symbol": symbol, "exchange": exchange, "currency": currency})
-        row = conn.execute(text("SELECT asset_id FROM econ_sim.asset WHERE symbol=:s"), {"s": symbol}).fetchone()
-        if not row:
-            raise RuntimeError(f"Failed to ensure asset for symbol={symbol}")
+        row = conn.execute(
+            text(f"SELECT asset_id FROM `{DB_NAME}`.asset WHERE symbol=:s"),
+            {"s": symbol}
+        ).fetchone()
+        if row:
+            return int(row[0])
+        conn.execute(
+            text(f"""
+                INSERT INTO `{DB_NAME}`.asset (class, symbol, exchange, currency, market)
+                VALUES ('spot', :symbol, :exchange, :currency, :market)
+            """),
+            {"symbol": symbol, "exchange": exchange, "currency": currency, "market": market}
+        )
+        row = conn.execute(
+            text(f"SELECT asset_id FROM `{DB_NAME}`.asset WHERE symbol=:s"),
+            {"s": symbol}
+        ).fetchone()
         return int(row[0])
 
-def upsert_bars(engine: Engine, asset_id: int, res: str, df: pd.DataFrame) -> int:
-    """df: index=ts(UTC tz-aware or naive UTC), columns=open,high,low,close,volume"""
+def upsert_bars(engine, asset_id: int, res: str, df: pd.DataFrame,
+                provider: str | None = None, market: str = "crypto") -> int:
+    table = resolve_bar_table(market)
     if df.empty:
         return 0
     out = df.copy()
@@ -77,8 +104,8 @@ def upsert_bars(engine: Engine, asset_id: int, res: str, df: pd.DataFrame) -> in
             "close": float(row["close"]),
             "volume": float(row["volume"]),
         })
-    sql = text("""
-        INSERT INTO econ_sim.bars
+    sql = text(f"""
+        INSERT INTO `{DB_NAME}`.{table}
           (asset_id, res, ts, open, high, low, close, volume)
         VALUES
           (:asset_id, :res, :ts, :open, :high, :low, :close, :volume)
@@ -90,10 +117,11 @@ def upsert_bars(engine: Engine, asset_id: int, res: str, df: pd.DataFrame) -> in
         conn.execute(sql, records)
     return len(records)
 
-def fetch_bars(engine: Engine, asset_id: int, res: str, start: str, end: str) -> pd.DataFrame:
-    q = text("""
+def fetch_bars(engine, asset_id: int, res: str, start: str, end: str, market: str = "crypto") -> pd.DataFrame:
+    table = resolve_bar_table(market)
+    q = text(f"""
         SELECT ts, open, high, low, close, volume
-        FROM econ_sim.bars
+        FROM `{DB_NAME}`.{table}
         WHERE asset_id=:aid AND res=:res AND ts>=:start AND ts<:end
         ORDER BY ts
     """)
