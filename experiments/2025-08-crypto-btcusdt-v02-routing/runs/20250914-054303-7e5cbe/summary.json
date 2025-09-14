@@ -1,0 +1,19 @@
+{
+  "run_id": "20250914-054303-7e5cbe",
+  "symbol": "BTCUSDT",
+  "res": "5m",
+  "strategy": "sma_cross",
+  "pnl": -0.806761112297167,
+  "sharpe": -4.8980443339590956,
+  "mdd": -0.8068989012347128,
+  "trades": 1053,
+  "fee_bps": 5.0,
+  "slip_bps": 4.0,
+  "start": "2024-08-31",
+  "end": "2025-08-31",
+  "start_cash": 10000.0,
+  "params": {
+    "short": 20,
+    "long": 60
+  }
+}
