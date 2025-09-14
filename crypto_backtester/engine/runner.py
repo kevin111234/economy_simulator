@@ -2,10 +2,20 @@ from __future__ import annotations
 import os, json, math, time, uuid
 from typing import Dict, Any, List, Tuple
 import pandas as pd
-from sqlalchemy import text
+from datetime import datetime
+from pathlib import Path
 
-from crypto_backtester.engine.db_utils import get_engine, ensure_asset, fetch_bars, load_conf
+import matplotlib
+matplotlib.use("Agg")  # 헤드리스 환경 렌더링
+import matplotlib.pyplot as plt
 
+from crypto_backtester.engine.db_utils import get_engine, ensure_asset, fetch_bars
+try:
+    import yaml  # params.yaml 저장용
+except Exception:
+    yaml = None
+
+# --------- 내부 유틸 ---------
 def _gen_run_id() -> str:
     return time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
 
@@ -13,7 +23,7 @@ def _periods_per_year(res: str) -> int:
     if res == "1d":
         return 365
     if res == "5m":
-        return 365*24*12  # 105,120
+        return 365 * 24 * 12  # 105,120
     raise ValueError(f"unknown res={res}")
 
 def _metrics(equity: pd.Series, res: str) -> Dict[str, float]:
@@ -24,7 +34,6 @@ def _metrics(equity: pd.Series, res: str) -> Dict[str, float]:
     mu, sd = ret.mean(), ret.std()
     ann = _periods_per_year(res)
     sharpe = (mu / sd * math.sqrt(ann)) if sd > 0 else 0.0
-    # MDD
     roll_max = eq.cummax()
     dd = eq / roll_max - 1.0
     mdd = float(dd.min()) if len(dd) else 0.0
@@ -39,34 +48,22 @@ def _one_line(run_id: str, symbol: str, res: str, strategy: str,
             f"PnL={pct(pnl)} Sharpe={sharpe:.2f} MDD={pct(mdd)} Trades={trades} "
             f"Fee={int(fee_bps)}bps Slip={int(slip_bps)}bps Period={start}→{end}")
 
-def _bulk_insert_orders(engine, orders: List[Dict[str, Any]]):
-    if not orders:
-        return
-    sql = text("""
-        INSERT INTO econ_sim.orders
-        (run_id, ts, side, symbol, res, qty, price, fee_bps, slippage_bps)
-        VALUES (:run_id,:ts,:side,:symbol,:res,:qty,:price,:fee_bps,:slippage_bps)
-    """)
-    with engine.begin() as conn:
-        conn.execute(sql, orders)
-
-def _insert_backtest_run(engine, row: Dict[str, Any]):
-    sql = text("""
-        INSERT INTO econ_sim.backtest_run
-        (run_id, symbol, res, strategy, params_json, start_ts, end_ts,
-         fee_bps, slip_bps, pnl, sharpe, mdd, trades)
-        VALUES (:run_id, :symbol, :res, :strategy, :params_json, :start_ts, :end_ts,
-                :fee_bps, :slip_bps, :pnl, :sharpe, :mdd, :trades)
-    """)
-    with engine.begin() as conn:
-        conn.execute(sql, row)
-
+# --------- 공개 API ---------
 def run_backtest(
     symbol: str, res: str, start: str, end: str,
     strategy_name: str, strategy_params: Dict[str, Any],
     start_cash: float, fee_bps: float, slip_bps: float,
-    liquidate_on_end: bool = True, db_logging: bool = True
+    liquidate_on_end: bool = True, db_logging: bool = True,
+    artifact_root: str | None = None,   # 실험 산출물 루트(exp-dir). None이면 experiments/<ES_EXP_NAME>/runs/<run_id> 사용
+    save_fig: bool = True
 ) -> Dict[str, Any]:
+    """
+    실행 결과 산출물 저장 정책(통일):
+      - artifact_root 지정: <artifact_root>/runs/<run_id>/
+      - artifact_root 미지정: crypto_backtester/experiments/<ES_EXP_NAME 또는 UNNAMED-EXP>/runs/<run_id>/
+      - 저장물: equity.csv, orders.csv, summary.json, params.yaml, figures/{equity.png, drawdown.png}
+    """
+    # 데이터 로드
     eng = get_engine()
     aid = ensure_asset(eng, symbol)
     df = fetch_bars(eng, aid, res, start, end)
@@ -100,8 +97,8 @@ def run_backtest(
 
     cash = start_cash
     qty = 0.0
-    equity = []
-    orders = []
+    equity_pairs: List[tuple[datetime, float]] = []
+    orders: List[Dict[str, Any]] = []
     prev_sig = 0
 
     for ts, row in df.iterrows():
@@ -138,7 +135,7 @@ def run_backtest(
 
         prev_sig = s
         # 마크투마켓
-        equity.append((ts, cash + qty * price))
+        equity_pairs.append((ts.to_pydatetime(), cash + qty * price))
 
     # 종료 청산
     last_ts = df.index[-1]
@@ -155,11 +152,12 @@ def run_backtest(
             "qty": qty, "price": sell_px, "fee_bps": fee_bps, "slippage_bps": slip_bps
         })
         qty = 0.0
-        equity[-1] = (last_ts, cash)  # 마지막 시점 에쿼티 갱신
+        if equity_pairs:
+            equity_pairs[-1] = (last_ts.to_pydatetime(), cash)  # 마지막 시점 에쿼티 갱신
 
-    equity_df = pd.Series({ts: val for ts, val in equity}, name="equity").sort_index()
+    equity_df = pd.Series({ts: val for ts, val in equity_pairs}, name="equity").sort_index()
     m = _metrics(equity_df, res)
-    trades = sum(1 for o in orders if o["side"] == "SELL")  # 라이트하게 '완결된 거래'로 카운트
+    trades = sum(1 for o in orders if o["side"] == "SELL")  # '완결된 거래'로 카운트
 
     # run_id, 요약/로그 저장
     run_id = _gen_run_id()
@@ -168,40 +166,78 @@ def run_backtest(
                      fee_bps, slip_bps, start_s, end_s)
     print(line)
 
-    # reports 파일 저장
-    reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports")
-    reports_dir = os.path.abspath(reports_dir)
-    os.makedirs(reports_dir, exist_ok=True)
-    # equity/orders 파일
-    equity_path = os.path.join(reports_dir, f"{run_id}_equity.csv")
-    orders_path = os.path.join(reports_dir, f"{run_id}_orders.csv")
+    # --- 산출물 저장 위치 결정(항상 experiments 계층) ---
+    if artifact_root is None:
+        exp_name = os.environ.get("ES_EXP_NAME", "UNNAMED-EXP")
+        base = Path(__file__).resolve().parents[1] / "experiments" / exp_name
+    else:
+        base = Path(artifact_root).resolve()
+    run_dir = base / "runs" / run_id
+    fig_dir = run_dir / "figures"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    equity_path = str(run_dir / "equity.csv")
+    orders_path = str(run_dir / "orders.csv")
+
+    # CSV 저장
     equity_df.to_csv(equity_path, header=True)
-    # orders에 run_id 채우고 저장
     for o in orders: o["run_id"] = run_id
     pd.DataFrame(orders).to_csv(orders_path, index=False)
-    # summary.jsonl
-    summ = {
-        "run_id": run_id, "symbol": symbol, "res": res, "strategy": strategy_name,
-        "pnl": m["pnl"], "sharpe": m["sharpe"], "mdd": m["mdd"], "trades": trades,
-        "fee_bps": fee_bps, "slip_bps": slip_bps, "start": start_s, "end": end_s
-    }
-    with open(os.path.join(reports_dir, "summary.jsonl"), "a", encoding="utf-8") as f:
-        f.write(json.dumps(summ) + "\n")
 
-    # DB 로깅
-    if db_logging:
-        eng = get_engine()
-        _insert_backtest_run(eng, {
-            "run_id": run_id, "symbol": symbol, "res": res,
-            "strategy": strategy_name, "params_json": json.dumps(strategy_params),
-            "start_ts": f"{start_s}", "end_ts": f"{end_s}",
-            "fee_bps": float(fee_bps), "slip_bps": float(slip_bps),
-            "pnl": float(m["pnl"]), "sharpe": float(m["sharpe"]),
-            "mdd": float(m["mdd"]), "trades": int(trades),
-        })
-        _bulk_insert_orders(eng, orders)
+    # summary 저장
+    summary_obj = {
+        "run_id": run_id, "symbol": symbol, "res": res, "strategy": strategy_name,
+        "pnl": float(m["pnl"]), "sharpe": float(m["sharpe"]), "mdd": float(m["mdd"]), "trades": int(trades),
+        "fee_bps": float(fee_bps), "slip_bps": float(slip_bps), "start": start_s, "end": end_s,
+        "start_cash": float(start_cash),
+        "params": strategy_params
+    }
+    with open(str(run_dir / "summary.json"), "w", encoding="utf-8") as f:
+        json.dump(summary_obj, f, ensure_ascii=False, indent=2)
+
+    # params.yaml 저장(없으면 params.json으로 폴백)
+    params_payload = {
+        "symbol": symbol, "resolution": res, "start": start_s, "end": end_s,
+        "strategy": strategy_name, "start_cash": float(start_cash),
+        "fee_bps": float(fee_bps), "slip_bps": float(slip_bps),
+        "params": strategy_params,
+    }
+    if yaml is not None:
+        with open(str(run_dir / "params.yaml"), "w", encoding="utf-8") as f:
+            yaml.safe_dump(params_payload, f, allow_unicode=True, sort_keys=False)
+    else:
+        with open(str(run_dir / "params.json"), "w", encoding="utf-8") as f:
+            json.dump(params_payload, f, ensure_ascii=False, indent=2)
+
+    # 그림 저장
+    if save_fig:
+        # equity
+        plt.figure(figsize=(10, 4))
+        equity_df.plot(ax=plt.gca())
+        plt.title(f"Equity — {symbol} {res} {strategy_name}")
+        plt.tight_layout()
+        if artifact_root:
+            plt.savefig(str(fig_dir / "equity.png"))
+        else:
+            plt.savefig(str(fig_dir / f"{run_id}_equity.png"))
+        plt.close()
+
+        # drawdown
+        dd = equity_df / equity_df.cummax() - 1.0
+        plt.figure(figsize=(10, 3))
+        dd.plot(ax=plt.gca())
+        plt.title("Drawdown")
+        plt.tight_layout()
+        if artifact_root:
+            plt.savefig(str(fig_dir / "drawdown.png"))
+        else:
+            plt.savefig(str(fig_dir / f"{run_id}_drawdown.png"))
+        plt.close()
 
     return {
-        "run_id": run_id, "equity_path": equity_path, "orders_path": orders_path,
-        "summary": summ
+        "run_id": run_id,
+        "artifact_dir": str(run_dir),
+        "equity_path": equity_path,
+        "orders_path": orders_path,
+        "summary": summary_obj
     }

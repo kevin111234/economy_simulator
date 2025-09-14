@@ -27,13 +27,12 @@ economy_simulator/
    │   └─ base.yaml               # fees/slip, resolutions(5m,1d), DB(MariaDB) 설정
    ├─ db/
    │   └─ migrations/
-   │       ├─ 0001_init.sql       # bars/backtest_run/orders 스키마
+   │       ├─ 0001_init.sql       # (선택) 시장데이터용 스키마 참고
    │       └─ 0002_partitions.sql # 월 파티션 템플릿(12개월 유지)
    ├─ datasets/                   # 5m CSV/Parquet 원본(연구용)
    ├─ engine/                     # 체결/비용/러너 (v0.1)
    ├─ strategies/                 # sma_cross, sma_macd_atr (+ 메타 JSON)
-   ├─ scripts/                    # ingest/resample/run/analytics/admin (스켈레톤)
-   ├─ reports/                    # summary.jsonl, *_orders.csv, *_equity.csv
+   ├─ scripts/                    # ingest/resample/run/analytics/admin
    ├─ experiments/
    │   └─ 2025-08-crypto-btcusdt-v01-baseline/
    │       ├─ card.md
@@ -114,7 +113,7 @@ strategies:
 
 runner:
   liquidate_on_end: true
-  outputs: ["orders_csv", "equity_csv", "summary_jsonl", "console_one_line"]
+  outputs: ["orders_csv", "equity_csv", "summary_json", "console_one_line"]
 
 analytics:   # v0.1 미니 버전
   label_horizons: ["5m", "1d"]
@@ -134,8 +133,8 @@ run_id,seed,start,end,symbol,resolution,strategy,fee_bps,slip_bps,sharpe,mdd,pnl
 ```json
 {
   "mysql": {
-    "backtest_run_id": "to-fill-after-first-run",
-    "orders_query": "SELECT * FROM orders WHERE run_id='to-fill' ORDER BY ts LIMIT 10"
+    "local_run_id": "auto",
+    "notes": "human-written notes live here"
   }
 }
 ```
@@ -158,26 +157,6 @@ CREATE TABLE IF NOT EXISTS bars (
   KEY idx_ts (ts),
   KEY idx_date (ts_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- 백테스트 요약·주문
-CREATE TABLE IF NOT EXISTS backtest_run (
-  run_id VARCHAR(64) PRIMARY KEY,
-  symbol VARCHAR(32), res VARCHAR(8),
-  strategy VARCHAR(64), params_json JSON,
-  start_ts DATETIME, end_ts DATETIME,
-  fee_bps DOUBLE, slip_bps DOUBLE,
-  pnl DOUBLE, sharpe DOUBLE, mdd DOUBLE, trades INT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS orders (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  run_id VARCHAR(64), ts DATETIME, side VARCHAR(8),
-  symbol VARCHAR(32), res VARCHAR(8),
-  qty DOUBLE, price DOUBLE, fee_bps DOUBLE, slippage_bps DOUBLE,
-  INDEX idx_run (run_id), INDEX idx_ts (ts)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
 
 ### 월 파티션(예시: 2024-09 \~ 2025-09 경계)
 
@@ -258,7 +237,7 @@ PARTITION BY RANGE COLUMNS (ts_date) (
 * **메타모픽**: `fee=0 & slip=0` → 벡터화 손익과 정확히 일치
 * **재현성**: 같은 입력/파라미터/시드 → 동일 요약 수치
 * **성능**: 5m 1년 단일 전략 원활 실행(메모리 폭증 없음)
-* **저장**: `reports/`(CSV/JSONL) + DB `backtest_run/orders` 행 생성
+* **저장**: `experiments/<실험>/runs/<run_id>/` (equity.csv, orders.csv, summary.json, params.yaml, figures/*.png)
 * **문서**: 실험 폴더에 card/report/runs/links/figures 채워짐
 
 ---
