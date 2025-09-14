@@ -32,8 +32,7 @@ economy_simulator/
    ├─ datasets/                   # 5m CSV/Parquet 원본(연구용)
    ├─ engine/                     # 체결/비용/러너 (v0.1)
    ├─ strategies/                 # sma_cross, sma_macd_atr (+ 메타 JSON)
-   ├─ scripts/                    # ingest/resample/run/analytics/admin (스켈레톤)
-   ├─ reports/                    # summary.jsonl, *_orders.csv, *_equity.csv
+   ├─ scripts/                    # ingest/resample/run/analytics/admin
    ├─ experiments/
    │   └─ 2025-08-crypto-btcusdt-v01-baseline/
    │       ├─ card.md
@@ -238,7 +237,7 @@ PARTITION BY RANGE COLUMNS (ts_date) (
 * **메타모픽**: `fee=0 & slip=0` → 벡터화 손익과 정확히 일치
 * **재현성**: 같은 입력/파라미터/시드 → 동일 요약 수치
 * **성능**: 5m 1년 단일 전략 원활 실행(메모리 폭증 없음)
-* 저장: `experiments/<exp>/runs/<run_id>/` (CSV/JSON, PNG) — DB 저장 없음
+* **저장**: `experiments/<실험>/runs/<run_id>/` (equity.csv, orders.csv, summary.json, params.yaml, figures/*.png)
 * **문서**: 실험 폴더에 card/report/runs/links/figures 채워짐
 
 ---
