@@ -21,12 +21,12 @@ def main():
     eng = get_engine()
     asset_id = ensure_asset(eng, args.symbol)
 
-    df5 = fetch_bars(eng, asset_id, "5m", args.start, args.end)
+    df5 = fetch_bars(eng, asset_id, "5m", args.start, args.end, market="crypto")
     if df5.empty:
         print("no 5m data found in range")
         return
     d1 = resample_5m_to_1d(df5)
-    n = upsert_bars(eng, asset_id, "1d", d1)
+    n = upsert_bars(eng, asset_id, "1d", d1, provider="resample", market="crypto")
     print(f"upserted {n} rows into bars(res='1d') for {args.symbol} [{args.start}→{args.end})")
 
 if __name__ == "__main__":

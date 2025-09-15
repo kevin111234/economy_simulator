@@ -53,6 +53,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", required=True)
     ap.add_argument("--res", choices=["5m","1d"], required=True)
+    ap.add_argument("--market", choices=["crypto","equity","commodity","fx"], default="crypto")
     ap.add_argument("--start", required=True)
     ap.add_argument("--end",   required=True, help="end exclusive")
     args = ap.parse_args()
@@ -60,7 +61,7 @@ def main():
     eng = get_engine()
     asset_id = ensure_asset(eng, args.symbol)
 
-    df = fetch_bars(eng, asset_id, args.res, args.start, args.end)
+    df = fetch_bars(eng, asset_id, args.res, args.start, args.end, market=args.market)
     exp = expected_count(args.start, args.end, args.res)
     res_qc = qc(df, args.res)
 
