@@ -1,16 +1,14 @@
 from __future__ import annotations
 import os
-from typing import Optional, Iterable, Dict, Any
-from dataclasses import dataclass
+from typing import Any
 import pandas as pd
 import yaml
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  # crypto_backtester/
-DB_NAME = os.getenv("DB_NAME", "econ_sim")
+# 레포 루트 (crypto_backtester/)
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 # v0.2: 자산군별 테이블 라우팅
 BAR_TABLE_BY_MARKET = {
@@ -32,7 +30,8 @@ def _expand_env(v: Any) -> Any:
     return v
 
 def load_conf() -> dict:
-    load_dotenv()  # 레포 루트(.env) 자동 로드
+    # .env 로드 (레포 루트의 .env)
+    load_dotenv()
     conf_path = os.path.join(ROOT, "conf", "base.yaml")
     with open(conf_path, "r", encoding="utf-8") as f:
         conf = yaml.safe_load(f)
@@ -58,54 +57,69 @@ def get_engine() -> Engine:
     )
     return engine
 
-def ensure_asset(engine, symbol: str, exchange: str | None = None,
-                currency: str | None = None, market: str = "crypto") -> int:
+def _db_name(engine: Engine) -> str:
+    """엔진이 실제로 접속 중인 DB 스키마 이름."""
+    return engine.url.database
+
+def ensure_asset(
+    engine: Engine,
+    symbol: str,
+    exchange: str | None = None,
+    currency: str | None = None,
+    market: str = "crypto",
+) -> int:
+    db = _db_name(engine)
     with engine.begin() as conn:
         row = conn.execute(
-            text(f"SELECT asset_id FROM `{DB_NAME}`.asset WHERE symbol=:s"),
+            text(f"SELECT asset_id FROM `{db}`.asset WHERE symbol=:s"),
             {"s": symbol}
         ).fetchone()
         if row:
             return int(row[0])
+
         conn.execute(
             text(f"""
-                INSERT INTO `{DB_NAME}`.asset (class, symbol, exchange, currency, market)
+                INSERT INTO `{db}`.asset (class, symbol, exchange, currency, market)
                 VALUES ('spot', :symbol, :exchange, :currency, :market)
             """),
             {"symbol": symbol, "exchange": exchange, "currency": currency, "market": market}
         )
         row = conn.execute(
-            text(f"SELECT asset_id FROM `{DB_NAME}`.asset WHERE symbol=:s"),
+            text(f"SELECT asset_id FROM `{db}`.asset WHERE symbol=:s"),
             {"s": symbol}
         ).fetchone()
         return int(row[0])
 
-def upsert_bars(engine, asset_id: int, res: str, df: pd.DataFrame,
-                provider: str | None = None, market: str = "crypto") -> int:
-    table = resolve_bar_table(market)
+def upsert_bars(
+    engine: Engine,
+    asset_id: int,
+    res: str,
+    df: pd.DataFrame,
+    provider: str | None = None,
+    market: str = "crypto",
+) -> int:
     if df.empty:
         return 0
-    out = df.copy()
+    db = _db_name(engine)
+    table = resolve_bar_table(market)
+
     records = []
-    for ts, row in out.iterrows():
-        # 각 row의 인덱스(ts)를 안전하게 UTC로 정규화
+    for ts, row in df.iterrows():
         ts = pd.Timestamp(ts)
-        if ts.tz is None:
-            ts_utc = ts.tz_localize("UTC")
-        else:
-            ts_utc = ts.tz_convert("UTC")
+        ts_utc = ts.tz_localize("UTC") if ts.tz is None else ts.tz_convert("UTC")
         records.append({
             "asset_id": asset_id,
             "res": res,
-            "ts": ts_utc.to_pydatetime().replace(tzinfo=None),  # MySQL DATETIME(UTC, naive)
+            "ts": ts_utc.to_pydatetime().replace(tzinfo=None),  # MySQL DATETIME(UTC naive)
             "open": float(row["open"]),
             "high": float(row["high"]),
             "low": float(row["low"]),
             "close": float(row["close"]),
             "volume": float(row["volume"]),
         })
+
     sql = text(f"""
-        INSERT INTO `{DB_NAME}`.{table}
+        INSERT INTO `{db}`.{table}
           (asset_id, res, ts, open, high, low, close, volume)
         VALUES
           (:asset_id, :res, :ts, :open, :high, :low, :close, :volume)
@@ -117,11 +131,19 @@ def upsert_bars(engine, asset_id: int, res: str, df: pd.DataFrame,
         conn.execute(sql, records)
     return len(records)
 
-def fetch_bars(engine, asset_id: int, res: str, start: str, end: str, market: str = "crypto") -> pd.DataFrame:
+def fetch_bars(
+    engine: Engine,
+    asset_id: int,
+    res: str,
+    start: str,
+    end: str,
+    market: str = "crypto",
+) -> pd.DataFrame:
+    db = _db_name(engine)
     table = resolve_bar_table(market)
     q = text(f"""
         SELECT ts, open, high, low, close, volume
-        FROM `{DB_NAME}`.{table}
+        FROM `{db}`.{table}
         WHERE asset_id=:aid AND res=:res AND ts>=:start AND ts<:end
         ORDER BY ts
     """)
