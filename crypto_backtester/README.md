@@ -3,6 +3,8 @@
 암호화폐 및 다중 자산군을 대상으로 하는 백테스트 엔진입니다.  
 MariaDB 기반 시계열 저장소, 표준화된 지표 계산기, 전략 인터페이스, 실행/리포팅 파이프라인을 포함합니다.
 
+---
+
 ## Features
 - **데이터 계층**
   - Binance 5m 시세 인제스트
@@ -22,74 +24,152 @@ MariaDB 기반 시계열 저장소, 표준화된 지표 계산기, 전략 인터
   - `card.md`, `report.md`, `runs.csv` 생성
   - 다건 실행 요약(summarize_runs)
 
+---
+
 ## Project Layout
 ```
 
 conf/
-base.yaml              # 기본 설정
-db/migrations/           # 초기 스키마, 파티션, migrate.sh
+base.yaml
+db/migrations/
+0001\_init.tmpl.sql
+0002\_partitions.tmpl.sql
+migrate.sh
 engine/
-db\_utils.py            # DB 유틸
-indicators.py          # 지표 계산기
-runner.py              # 백테스트 코어
+db\_utils.py
+indicators.py
+runner.py
 strategies/
-sma\_align\_macd.py      # 예시 전략
+sma\_align\_macd.py
 scripts/
-ingest\_binance\_5m.py   # 데이터 적재
-resample\_to\_1d.py      # 5m → 1d 변환
-qc\_bars.py             # QC 도구
-run\_backtest.py        # 백테스트 실행 CLI
-make\_experiment\_report.py # 리포트 생성
-summarize\_runs.py      # 실행 집계
+ingest\_binance\_5m.py
+resample\_to\_1d.py
+qc\_bars.py
+run\_backtest.py
+make\_experiment\_report.py
+summarize\_runs.py
 
 ````
+
+---
 
 ## Quickstart
-1. **DB 초기화**
-   ```bash
-   cd db/migrations
-   ./migrate.sh
+
+### 1. DB 초기화
+```bash
+cd db/migrations
+./migrate.sh --drop   # clean setup
 ````
 
-2. **데이터 인제스트**
+### 2. 데이터 인제스트
 
-   ```bash
-   python scripts/ingest_binance_5m.py --symbol BTCUSDT --start 2024-01-01 --end 2024-12-31
-   ```
+```bash
+python scripts/ingest_binance_5m.py \
+  --symbol BTCUSDT \
+  --start 2024-01-01 \
+  --end 2024-12-31
+```
 
-3. **QC 점검**
+### 3. QC 점검
 
-   ```bash
-   python scripts/qc_bars.py --symbol BTCUSDT --res 5m --market crypto --start 2024-01-01 --end 2024-12-31
-   ```
+```bash
+python scripts/qc_bars.py \
+  --symbol BTCUSDT \
+  --res 5m \
+  --market crypto \
+  --start 2024-01-01 \
+  --end 2024-12-31
+```
 
-4. **리샘플**
+### 4. 리샘플
 
-   ```bash
-   python scripts/resample_to_1d.py --symbol BTCUSDT --start 2024-01-01 --end 2024-12-31
-   ```
+```bash
+python scripts/resample_to_1d.py \
+  --symbol BTCUSDT \
+  --start 2024-01-01 \
+  --end 2024-12-31
+```
 
-5. **백테스트**
+### 5. 백테스트
 
-   ```bash
-   python scripts/run_backtest.py \
-     --symbol BTCUSDT \
-     --resolution 1d \
-     --start 2024-01-01 --end 2024-12-31 \
-     --strategy-func crypto_backtester.strategies.sma_align_macd:decide \
-     --param tp_pct=0.05 --param sl_pct=-0.1 \
-     --artifact-root experiments/test
-   ```
+```bash
+python scripts/run_backtest.py \
+  --symbol BTCUSDT \
+  --resolution 1d \
+  --start 2024-01-01 \
+  --end 2024-12-31 \
+  --strategy-func crypto_backtester.strategies.sma_align_macd:decide \
+  --param tp_pct=0.05 \
+  --param sl_pct=-0.1 \
+  --artifact-root experiments/test
+```
 
-6. **리포트 정리**
+### 6. 리포트 정리
 
-   ```bash
-   python scripts/make_experiment_report.py --from-dir experiments/test/runs/<run_id> --exp-dir experiments/test
-   ```
+```bash
+python scripts/make_experiment_report.py \
+  --from-dir experiments/test/runs/<run_id> \
+  --exp-dir experiments/test \
+  --notes "첫 번째 실험"
+```
 
-7. **실행 요약**
+### 7. 실행 요약
 
-   ```bash
-   python scripts/summarize_runs.py --reports-dir crypto_backtester/reports --sort-by sharpe --top 20
-   ```
+```bash
+python scripts/summarize_runs.py \
+  --reports-dir crypto_backtester/reports \
+  --sort-by sharpe \
+  --top 20
+```
 
+---
+
+## Sample Session
+
+```bash
+# 1) 데이터 적재
+python scripts/ingest_binance_5m.py --symbol BTCUSDT --start 2024-01-01 --end 2024-06-01
+
+# 2) QC
+python scripts/qc_bars.py --symbol BTCUSDT --res 5m --market crypto --start 2024-01-01 --end 2024-06-01
+
+# 3) 리샘플
+python scripts/resample_to_1d.py --symbol BTCUSDT --start 2024-01-01 --end 2024-06-01
+
+# 4) 백테스트
+python scripts/run_backtest.py \
+  --symbol BTCUSDT --resolution 1d \
+  --start 2024-01-01 --end 2024-06-01 \
+  --strategy-func crypto_backtester.strategies.sma_align_macd:decide \
+  --param tp_pct=0.05 --param sl_pct=-0.1 \
+  --artifact-root experiments/demo
+
+# 5) 실험 보고서 생성
+python scripts/make_experiment_report.py \
+  --from-dir experiments/demo/runs/20250101-120000-abcdef \
+  --exp-dir experiments/demo --notes "데모 런"
+
+# 6) 실행 모아보기
+python scripts/summarize_runs.py --reports-dir crypto_backtester/reports --sort-by sharpe --top 5
+```
+
+---
+
+## Example Directory Structure
+
+```
+experiments/demo/
+├── runs/
+│   └── 20250101-120000-abcdef/
+│       ├── equity.csv
+│       ├── orders.csv
+│       ├── summary.json
+│       ├── params.yaml
+│       └── figures/
+│           ├── equity.png
+│           └── drawdown.png
+├── runs.csv
+├── report.md
+├── card.md
+└── links.json
+```
