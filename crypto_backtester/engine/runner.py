@@ -373,7 +373,7 @@ def run_backtest(
     }
 
 """
-export ES_EXP_NAME="{파일명}"
+export ES_EXP_NAME="2025-08-crypto-btcusdt-v02-align_macd4"
 
 python -m crypto_backtester.scripts.run_backtest \
   --symbol BTCUSDT --resolution 5m \

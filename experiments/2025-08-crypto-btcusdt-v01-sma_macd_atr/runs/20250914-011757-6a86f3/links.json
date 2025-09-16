@@ -1,9 +1,0 @@
-{
-  "local": {
-    "summary": "summary.json",
-    "equity_csv": "equity.csv",
-    "orders_csv": "orders.csv",
-    "equity_png": "figures/equity.png",
-    "drawdown_png": "figures/drawdown.png"
-  }
-}
