@@ -132,46 +132,8 @@ def run_backtest(
     if strategy_func:
         decide_fn = _import_func(strategy_func)
         strat_name_for_log = strategy_func
-    elif strategy:
-        # 레거시 두 전략을 함수 래핑으로 제공
-        if strategy == "sma_cross":
-            from crypto_backtester.strategies.sma_cross import generate_signals
-            short = int(strategy_params.get("short", 20))
-            long  = int(strategy_params.get("long", 60))
-            def decide_fn(past_df, ctx, state, params):
-                # 룩어헤드 방지: past_df 기준의 시그널(t)에 대해 t+1 체결
-                sig = generate_signals(past_df[["open","high","low","close","volume"]], short=short, long=long).iloc[-1]
-                if sig == 1:
-                    return ("buy", 1.0)
-                else:
-                    # 포지션 있으면 유지(별도 exit 규칙 없음 → hold)
-                    return ("hold", None)
-            strat_name_for_log = f"sma_cross({short},{long})"
-        elif strategy == "sma_macd_atr":
-            from crypto_backtester.strategies.sma_macd_atr import generate_signals
-            p = {
-                "sma_short": int(strategy_params.get("sma_short", 20)),
-                "sma_long":  int(strategy_params.get("sma_long", 60)),
-                "macd_fast": int(strategy_params.get("macd_fast", 12)),
-                "macd_slow": int(strategy_params.get("macd_slow", 26)),
-                "macd_signal": int(strategy_params.get("macd_signal", 9)),
-                "atr_n": int(strategy_params.get("atr_n", 14)),
-                "atr_k": float(strategy_params.get("atr_k", 3.0)),
-            }
-            def decide_fn(past_df, ctx, state, params):
-                sig = generate_signals(past_df[["open","high","low","close","volume"]],
-                                       **p).iloc[-1]
-                if sig == 1:
-                    return ("buy", 1.0)
-                elif sig == -1:
-                    return ("sell", 0.0)
-                else:
-                    return ("hold", None)
-            strat_name_for_log = f"sma_macd_atr({p})"
-        else:
-            raise ValueError(f"unknown strategy={strategy}")
     else:
-        raise ValueError("strategy 또는 strategy_func 중 하나는 지정해야 합니다.")
+        raise ValueError("strategy function을 지정해야 합니다.")
 
     # 4) 실행 엔진 (t에서 의사결정 → t+1 체결)
     slip = slip_bps / 10_000.0
@@ -409,3 +371,15 @@ def run_backtest(
         "orders_path": orders_path,
         "summary": summary_obj
     }
+
+"""
+export ES_EXP_NAME="{파일명}"
+
+python -m crypto_backtester.scripts.run_backtest \
+  --symbol BTCUSDT --resolution 5m \
+  --start 2024-08-31 --end 2025-08-31 \
+  --strategy-func crypto_backtester.strategies.sma_align_macd:decide \
+  --param tp_pct=0.05 --param sl_pct=-0.10 --param target_weight=1.0 \
+  --start-cash 10000 \
+  --artifact-root "experiments/${ES_EXP_NAME}"
+"""
