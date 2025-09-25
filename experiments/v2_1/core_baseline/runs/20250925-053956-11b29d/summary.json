@@ -1,0 +1,26 @@
+{
+  "run_id": "20250925-053956-11b29d",
+  "symbol": "BTCUSDT",
+  "res": "5m",
+  "strategy": "crypto_backtester.strategies.sma_align_macd_v2_1:decide",
+  "pnl": -0.9999999999925263,
+  "sharpe": -78.9553127841146,
+  "mdd": -0.9999999999925653,
+  "trades": 14254,
+  "fee_bps": 5.0,
+  "slip_bps": 4.0,
+  "start": "2022-01-01",
+  "end": "2025-09-01",
+  "start_cash": 10000.0,
+  "params": {
+    "short": 20,
+    "long": 60,
+    "sma_short": 20,
+    "sma_long": 60,
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
+    "atr_n": 14,
+    "atr_k": 3.0
+  }
+}
